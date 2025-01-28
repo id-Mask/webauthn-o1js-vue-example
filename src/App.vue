@@ -52,15 +52,25 @@ const toBase64 = (buffer) =>
   // parse objects
   const publicKeyHex = parsePublicKeyHex(credential.response.attestationObject);
   console.log(publicKeyHex);
+
+  // save for auth
+  window.localStorage.setItem('id', JSON.stringify({ [credential.id]: publicKeyHex }));
+  console.log(window.localStorage)
 };
 
 const askForAnyKey = async () => {
+
+  // suggest latest created key
+  const account = JSON.parse(localStorage.getItem('id'));
+  console.log(account)
+  const [[id, publicKeyHex]] = Object.entries(account);
+
   const publicKey = {
     challenge: generateRandomChallenge(),
     allowCredentials: [
       {
         type: 'public-key',
-        id: base64urlToBuffer('KSA7G0BCX9LkRNUHLYlFuQ'),
+        id: base64urlToBuffer(id),
         transports: [],
       },
     ],
@@ -81,7 +91,7 @@ const askForAnyKey = async () => {
     console.log(singatureHex);
 
     await verify_elliptic(
-      '0x040cdb8e9fb984e9f75e4e8df69475cc7ff0d4d2f88c16d31ea861a2b562d62ebb82538ff6baeab63e6e62cad57e6cec3007db70901d66de253e964bae6293e7e9',
+      publicKeyHex,
       payloadHex,
       singatureHex
     );
