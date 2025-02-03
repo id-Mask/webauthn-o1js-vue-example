@@ -1,20 +1,20 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import {
-  verifyP256Point,
   base64urlToBuffer,
-  parseAttestationObject,
+  bufferToBase64,
   parsePublicKeyHex,
   parsePayloadHex,
   parseSignatureHex,
 } from './utils.js';
-import {
-  Secp256r1,
-  EcdsaP256,
-  WebAuthnP256,
-  Params,
-} from './zkProgram.js';
+import { Secp256r1, EcdsaP256, WebAuthnP256 } from './zkProgram.js';
 import { ec } from 'elliptic';
+
+const authData = ref({
+  publicKeyHex: null,
+  payloadHex: null,
+  signatureHex: null,
+});
 
 const generateRandomChallenge = () => {
   const challenge = new Uint8Array(32);
@@ -22,10 +22,7 @@ const generateRandomChallenge = () => {
   return challenge;
 };
 
-const toBase64 = (buffer) =>
-  btoa(String.fromCharCode(...new Uint8Array(buffer)));
-
-  const registerUser = async () => {
+const registerUser = async () => {
   const publicKey = {
     rp: {
       name: 'raidas',
@@ -33,7 +30,7 @@ const toBase64 = (buffer) =>
     user: {
       id: Uint8Array.from('raidas', (c) => c.charCodeAt(0)),
       name: 'raidas_name',
-      displayName: 'raidsa_display',
+      displayName: 'raidas_display',
     },
     pubKeyCredParams: [
       {
@@ -54,26 +51,34 @@ const toBase64 = (buffer) =>
   console.log(publicKeyHex);
 
   // save for auth
-  window.localStorage.setItem('id', JSON.stringify({ [credential.id]: publicKeyHex }));
-  console.log(window.localStorage)
+  window.localStorage.setItem(
+    'id',
+    JSON.stringify({ [credential.id]: publicKeyHex })
+  );
+  console.log(window.localStorage);
 };
 
 const askForAnyKey = async () => {
-
   // suggest latest created key
   const account = JSON.parse(localStorage.getItem('id'));
-  console.log(account)
-  const [[id, publicKeyHex]] = Object.entries(account);
-
-  const publicKey = {
-    challenge: generateRandomChallenge(),
-    allowCredentials: [
+  console.log(account);
+  let id = null;
+  let publicKeyHex = null;
+  let allowCredentials = [];
+  if (account) {
+    [[id, publicKeyHex]] = Object.entries(account);
+    allowCredentials = [
       {
         type: 'public-key',
         id: base64urlToBuffer(id),
         transports: [],
       },
-    ],
+    ];
+  }
+
+  const publicKey = {
+    challenge: generateRandomChallenge(),
+    allowCredentials: id ? allowCredentials : [],
     userVerification: 'preferred',
   };
   const assertion = await navigator.credentials.get({ publicKey });
@@ -85,24 +90,20 @@ const askForAnyKey = async () => {
       assertion.response.authenticatorData
     );
     console.log(payloadHex);
-    const singatureHex = await parseSignatureHex(
-      toBase64(assertion.response.signature)
+    const signatureHex = await parseSignatureHex(
+      bufferToBase64(assertion.response.signature)
     );
-    console.log(singatureHex);
+    console.log(signatureHex);
 
-    await verify_elliptic(
-      publicKeyHex,
-      payloadHex,
-      singatureHex
-    );
+    // save
+    authData.value.publicKeyHex = publicKeyHex;
+    authData.value.payloadHex = payloadHex;
+    authData.value.signatureHex = signatureHex;
+    // await verify_elliptic(publicKeyHex, payloadHex, signatureHex);
   }
 };
 
-const verify_o1js = async (
-  publicKeyHex,
-  payloadHex,
-  signatureHex
-) => {
+const verify_o1js = async (publicKeyHex, payloadHex, signatureHex) => {
   // parse hex values
   const publicKey_ = Secp256r1.fromHex(publicKeyHex);
   const payload_ = Secp256r1.Scalar.from(payloadHex);
@@ -117,9 +118,14 @@ const verify_o1js = async (
   });
 
   console.log('signature is valid: ', isvalid.proof.publicOutput.toBoolean());
+  alert(`signature is valid: ${isvalid.proof.publicOutput.toBoolean()}`)
   return isvalid.proof.publicOutput.toBoolean();
 };
 
+/*
+  Can't use this if we hash the payload and then sign.
+  Crypto API only allow verification when payload is not yet hashed, and hashed it inside its verify method. We on the other hand opted to hash the payload ourselves and only then sign.
+*/
 const verify_crypto = async (publicKeyHex, payloadHex, signatureHex) => {
   // Remove '0x' prefix if present
   publicKeyHex = publicKeyHex.replace('0x', '');
@@ -128,13 +134,13 @@ const verify_crypto = async (publicKeyHex, payloadHex, signatureHex) => {
 
   // Convert hex strings to Uint8Array
   const publicKeyBytes = new Uint8Array(
-    publicKeyHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+    publicKeyHex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
   );
   const payloadBytes = new Uint8Array(
-    payloadHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+    payloadHex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
   );
   const signatureBytes = new Uint8Array(
-    signatureHex.match(/.{1,2}/g).map(byte => parseInt(byte, 16))
+    signatureHex.match(/.{1,2}/g).map((byte) => parseInt(byte, 16))
   );
 
   // Import the public key
@@ -143,7 +149,7 @@ const verify_crypto = async (publicKeyHex, payloadHex, signatureHex) => {
     publicKeyBytes,
     {
       name: 'ECDSA',
-      namedCurve: 'P-256' // Adjust if using a different curve
+      namedCurve: 'P-256', // Adjust if using a different curve
     },
     true,
     ['verify']
@@ -153,17 +159,18 @@ const verify_crypto = async (publicKeyHex, payloadHex, signatureHex) => {
   const isValid = await crypto.subtle.verify(
     {
       name: 'ECDSA',
-      hash: 'SHA-256'
+      hash: 'SHA-256',
     },
     cryptoKey,
     signatureBytes,
     payloadBytes
   );
-  console.log('signature is valid:', isValid)
+  console.log('signature is valid:', isValid);
   return isValid;
 };
 
 const verify_elliptic = (publicKeyHex, payloadHex, signatureHex) => {
+  console.log(publicKeyHex, payloadHex, signatureHex);
 
   const hexToUint8Array = (hex) => {
     const bytes = new Uint8Array(hex.length / 2);
@@ -195,14 +202,41 @@ const verify_elliptic = (publicKeyHex, payloadHex, signatureHex) => {
   // Verify the signature
   const isValid = publicKey.verify(payloadBytes, { r, s });
   console.log('signature is valid:', isValid);
+  alert(`signature is valid: ${isValid}`)
   return isValid;
 };
-
 </script>
 
 <template>
   <button @click="registerUser">register</button>
   <button @click="askForAnyKey">authenticate</button>
+  <br />
+  <div class="jsonDisplay">
+    {{ JSON.stringify(authData, null, 2) }}
+  </div>
+  <br />
+  <button
+    @click="
+      verify_elliptic(
+        authData.publicKeyHex,
+        authData.payloadHex,
+        authData.signatureHex
+      )
+    "
+  >
+    verify_elliptic
+  </button>
+  <button
+    @click="
+      verify_o1js(
+        authData.publicKeyHex,
+        authData.payloadHex,
+        authData.signatureHex
+      )
+    "
+  >
+    verify_o1js
+  </button>
 </template>
 
 <style scoped></style>

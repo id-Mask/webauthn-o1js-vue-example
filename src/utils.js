@@ -9,10 +9,8 @@ export const base64urlToBuffer = (base64url) => {
 };
 
 // Helper function to encode Uint8Array to base64url
-export const bufferToBase64url = (buffer) => {
-  const base64 = btoa(String.fromCharCode(...buffer));
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
+export const bufferToBase64 = (buffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(buffer)));
 
 /*
   Parse public key from credentials.response.attestationObject
@@ -58,8 +56,8 @@ export const parseAttestationObject = (attestationObject) => {
   return {
     kty: 'EC',
     crv: 'P-256',
-    x: bufferToBase64url(x),
-    y: bufferToBase64url(y),
+    x: bufferToBase64(x),
+    y: bufferToBase64(y),
     ext: true,
   };
 };
@@ -192,49 +190,4 @@ export const parseSignatureHex = (signature) => {
       .join('');
 
   return signatureHex;
-};
-
-/*
-  Verify P-256 coordinates
-*/
-export const verifyP256Point = (x, y) => {
-  // P-256 curve parameters
-  const p = BigInt(
-    '0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF'
-  ); // Prime modulus
-  const a = BigInt(
-    '0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFC'
-  ); // Curve coefficient a
-  const b = BigInt(
-    '0x5AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B'
-  ); // Curve coefficient b
-
-  // Convert base64url to BigInt
-  const xBuf = base64urlToBuffer(x);
-  const yBuf = base64urlToBuffer(y);
-
-  // Check lengths
-  if (xBuf.length !== 32 || yBuf.length !== 32) {
-    return false;
-  }
-
-  // Convert to BigInt
-  const xInt = BigInt(
-    '0x' +
-      Array.from(xBuf)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-  );
-  const yInt = BigInt(
-    '0x' +
-      Array.from(yBuf)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-  );
-
-  // Verify point satisfies curve equation: y² = x³ + ax + b (mod p)
-  const left = (yInt * yInt) % p;
-  const right = (xInt * xInt * xInt + a * xInt + b) % p;
-
-  return left === right;
 };
