@@ -25,12 +25,12 @@ const generateRandomChallenge = () => {
 const registerUser = async () => {
   const publicKey = {
     rp: {
-      name: 'raidas',
+      name: 'id-mask',
     },
     user: {
-      id: Uint8Array.from('raidas', (c) => c.charCodeAt(0)),
-      name: 'raidas_name',
-      displayName: 'raidas_display',
+      id: Uint8Array.from('id-mask', (c) => c.charCodeAt(0)),
+      name: 'id-mask',
+      displayName: 'id-mask',
     },
     pubKeyCredParams: [
       {
